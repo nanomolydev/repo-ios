@@ -1,0 +1,24 @@
+{
+  "name": "R.E.P.O iOS (patched)",
+  "identifier": "com.nanomolydev.repo-ios",
+  "subtitle": "GLEPorts build with the iOS fixes applied",
+  "iconURL": "https://raw.githubusercontent.com/nanomolydev/repo-ios/master/icon.png",
+  "apps": [
+    {
+      "name": "R.E.P.O",
+      "bundleIdentifier": "com.Neznayaka.R.E.P.O",
+      "developerName": "GLEPorts (patched)",
+      "subtitle": "Loud audio, 0.7 render scale, cloud multiplayer",
+      "version": "0.3",
+      "versionDate": "2026-09-05T00:00:00Z",
+      "versionDescription": "Playback forced to the loudspeaker (the port enables mic recording, which routed all sound to the earpiece), render scale 0.7, version string bumped to 0.3. Photon multiplayer untouched.",
+      "downloadURL": "https://github.com/nanomolydev/repo-ios/releases/download/v0.3/repo-ios-v0.3-tuned.ipa",
+      "localizedDescription": "R.E.P.O. iOS port by GLEPorts, patched: iOS audio no longer plays through the earpiece, render scale lowered to 0.7, bundle version 0.3. Multiplayer config (Photon app id, version, RPC list) is byte-identical to the Android 0.3 build, so cross-play still works.",
+      "iconURL": "https://raw.githubusercontent.com/nanomolydev/repo-ios/master/icon.png",
+      "size": 402717220,
+      "tintColor": "e8a33d",
+      "screenshotURLs": []
+    }
+  ],
+  "news": []
+}
