@@ -1,0 +1,110 @@
+name: ios-sim-launch
+
+# Runs the iOS port in the Simulator and screenshots it. A device .ipa is arm64
+# with platform=IOS; on an Apple-silicon runner the Simulator executes the same
+# instructions, so tools/ipa_to_sim.py flips the platform byte and we ad-hoc
+# sign it. Note: macOS minutes bill at 10x, so this is workflow_dispatch only.
+on:
+  workflow_dispatch:
+    inputs:
+      ipa_url:
+        description: Public URL of the ipa (wins over the release inputs)
+        default: 'https://github.com/nanomolydev/repo-ios/releases/download/v0.3/repo-ios-v0.3-tuned.ipa'
+      ipa_release:
+        description: Release tag holding the ipa
+        default: source
+      ipa_asset:
+        description: Asset name
+        default: repo-ios.ipa
+      seconds:
+        description: How long to watch the app
+        default: '180'
+      nil_heaps:
+        description: Make Metal heap creation fail instead of forcing Private
+        default: '1'
+      taps:
+        description: 'Taps as "x,y@step", step = screenshot number (1 = first)'
+        default: '170,170@5 120,378@7 186,443@9 336,441@11 229,317@13 229,317@14'
+
+
+jobs:
+  sim:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: cache the converted app
+        id: appcache
+        uses: actions/cache@v4
+        with:
+          path: build-sim
+          key: simapp-${{ inputs.ipa_asset }}${{ inputs.ipa_url }}-${{ hashFiles('tools/ipa_to_sim.py') }}
+      - name: fetch ipa
+        if: steps.appcache.outputs.cache-hit != 'true' 
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ -n "${{ inputs.ipa_url }}" ]; then
+            curl -fL --retry 3 -o game.ipa "${{ inputs.ipa_url }}"
+          else
+            gh release download "${{ inputs.ipa_release }}" -p "${{ inputs.ipa_asset }}" -O game.ipa
+          fi
+          ls -lh game.ipa
+      - name: convert to a simulator build
+        # Converting and ad-hoc signing a 938 MB app takes minutes; the result
+        # only depends on the ipa and the converter, so cache it.
+        run: |
+          if [ "${{ steps.appcache.outputs.cache-hit }}" != "true" ]; then
+            python3 tools/ipa_to_sim.py game.ipa -o build-sim
+          fi
+          APP=$(ls -d build-sim/Payload/*.app)
+          echo "APP=$APP" >> $GITHUB_ENV
+          if [ "${{ steps.appcache.outputs.cache-hit }}" != "true" ]; then
+            /usr/bin/codesign -f -s - --timestamp=none \
+              "$APP/Frameworks/UnityFramework.framework"
+            /usr/bin/codesign -f -s - --timestamp=none "$APP"
+          fi
+          /usr/bin/codesign -dv "$APP" 2>&1 | head -5
+      - name: build the simulator Metal shim
+        run: |
+          xcrun -sdk iphonesimulator clang -arch arm64 -dynamiclib \
+            -mios-simulator-version-min=13.0 \
+            -framework Foundation -framework Metal -framework AVFoundation \
+            -o "$PWD/libsimhook.dylib" tools/simhook/simhook.m
+          echo "HOOK=$PWD/libsimhook.dylib" >> $GITHUB_ENV
+          file libsimhook.dylib
+      - name: boot simulator
+        run: |
+          xcrun simctl list devicetypes | grep -i "iPhone 1[5-7]" | head -5
+          DEV=$(xcrun simctl create repo com.apple.CoreSimulator.SimDeviceType.iPhone-16-Pro)
+          echo "DEV=$DEV" >> $GITHUB_ENV
+          xcrun simctl boot "$DEV"
+          xcrun simctl bootstatus "$DEV" -b
+      - name: install idb for taps
+        continue-on-error: true
+        # Homebrew refuses untrusted third-party taps now, so take the release
+        # tarball instead of `brew install facebook/fb/idb-companion`.
+        run: |
+          set -x
+          curl -fL -o idb.tar.gz \
+            https://github.com/facebook/idb/releases/download/v1.5.2/idb-companion.macos-arm64.tar.gz
+          tar xzf idb.tar.gz
+          BIN=$(dirname "$(find . -name idb_companion -type f | head -1)")
+          echo "$PWD/${BIN#./}" >> $GITHUB_PATH
+          export PATH="$PWD/${BIN#./}:$PATH"
+          pip3 install --break-system-packages fb-idb || pipx install fb-idb
+          echo "$(python3 -m site --user-base)/bin" >> $GITHUB_PATH
+          command -v idb_companion && echo "companion ready"
+          (command -v idb || ls "$(python3 -m site --user-base)/bin/idb") && echo "idb ready"
+      - name: install and run
+        run: bash scripts/sim_test.sh "$APP" "${{ inputs.seconds }}"
+        env:
+          DEV: ${{ env.DEV }}
+          SIMCTL_CHILD_DYLD_INSERT_LIBRARIES: ${{ env.HOOK }}
+          SIMCTL_CHILD_SIMHOOK_NIL_HEAPS: ${{ inputs.nil_heaps }}
+          TAPS: ${{ inputs.taps }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ios-sim
+          path: sim-test/
